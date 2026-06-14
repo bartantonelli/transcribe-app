@@ -1,0 +1,16 @@
+# Build outputs
+build/
+cache/
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Local virtual envs (we use python-build-standalone in build/, not here)
+venv/
+.venv/
