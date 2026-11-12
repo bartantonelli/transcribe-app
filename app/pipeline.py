@@ -58,6 +58,7 @@ parser.add_argument(
     help="where the word-timing model runs (mps = GPU)",
 )
 parser.add_argument("--timings", action="store_true", help="print how long each step took")
+parser.add_argument("--json", help="also write every word with its timing and speaker here (for the app's transcript view)")
 args = parser.parse_args()
 
 t0 = time.time()
@@ -143,7 +144,12 @@ whisper_model = faster_whisper.WhisperModel(WHISPER_MODEL, device="cpu", compute
 segments, info = faster_whisper.BatchedInferencePipeline(whisper_model).transcribe(
     audio, "en", suppress_tokens=[-1], batch_size=BATCH_SIZE
 )
-full_transcript = "".join(segment.text for segment in segments)
+duration = len(audio) / 16000
+texts = []
+for segment in segments:
+    texts.append(segment.text)
+    print(f"PROGRESS {min(segment.end / duration, 1):.4f}", flush=True)  # read by the app's progress bar
+full_transcript = "".join(texts)
 del whisper_model
 timings["words"] = time.time() - start
 
@@ -182,6 +188,13 @@ with open(f"{base}.txt", "w", encoding="utf-8-sig") as f:
     get_speaker_aware_transcript(ssm, f)
 with open(f"{base}.srt", "w", encoding="utf-8-sig") as srt:
     write_srt(ssm, srt)
+
+if args.json:
+    # [word, start_ms, end_ms, speaker] in transcript order; consecutive words
+    # with the same speaker make up the paragraphs of the .txt.
+    words = [[w["word"], w["start_time"], w["end_time"], w["speaker"]] for w in wsm if w["word"].strip()]
+    with open(args.json, "w", encoding="utf-8") as f:
+        json.dump({"version": 1, "duration": duration, "words": words}, f, ensure_ascii=False)
 
 if args.timings:
     timings["total"] = time.time() - t0

@@ -3,7 +3,7 @@
 #
 #   curl -fsSL https://github.com/bartantonelli/transcribe-app/releases/latest/download/install.sh | bash
 #
-# Downloads the app (about 4 GB, in parts), checks every part against the
+# Downloads the app (about 3 GB, in parts), checks every part against the
 # published checksums, and puts Transcribe.app in /Applications, replacing any
 # older copy there. After that the app never needs the internet again.
 #
@@ -70,5 +70,5 @@ xattr -dr com.apple.quarantine "$DEST/Transcribe.app" 2>/dev/null || true
 
 echo ""
 echo "Done. Transcribe is in $DEST."
-echo "Drag an audio file onto it to get a transcript next to the file."
+echo "Open it and drop a recording into the window to get a transcript next to the file."
 open -R "$DEST/Transcribe.app" 2>/dev/null || true

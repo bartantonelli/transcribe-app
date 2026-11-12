@@ -17,15 +17,16 @@ APP="$ROOT/build/Transcribe.app"
 step() { echo ""; echo "==> $*"; }
 
 # Sanity checks for tools we need (all built into macOS or trivial).
-for tool in curl tar git osacompile iconutil sips codesign rsync swift; do
+for tool in curl tar git iconutil sips codesign rsync swift; do
     command -v "$tool" >/dev/null || { echo "Missing tool: $tool"; exit 1; }
 done
 
 # ---------------------------------------------------------------
-step "1/10 Compile AppleScript droplet -> Transcribe.app"
+step "1/10 Create the Transcribe.app bundle"
 # ---------------------------------------------------------------
 rm -rf "$APP"
-osacompile -o "$APP" app/droplet.applescript
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp app/Info.plist "$APP/Contents/Info.plist"
 
 # ---------------------------------------------------------------
 step "2/10 Download portable Python ${PYTHON_VERSION} (${PYTHON_RELEASE})"
@@ -92,10 +93,10 @@ for spec in "16 16x16" "32 16x16@2x" "32 32x32" "64 32x32@2x" \
     sips -z "$sz" "$sz" cache/icon_1024.png \
         --out "$ICONSET/icon_${name}.png" >/dev/null
 done
-iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/droplet.icns"
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Transcribe.icns"
 
 # ---------------------------------------------------------------
-step "8/10 Build speaker-native and download its models"
+step "8/10 Build the app window and speaker-native, download speaker models"
 # ---------------------------------------------------------------
 # Some Command Line Tools installs keep a stale *.private.swiftinterface from an
 # older version, which makes every Package.swift fail to compile. If so, build
@@ -108,18 +109,22 @@ if [ -f "$PD/arm64-apple-macos.private.swiftinterface" ] && \
     find cache/swiftpm-libs -name '*.private.swiftinterface' -delete
     export SWIFTPM_CUSTOM_LIBS_DIR="$ROOT/cache/swiftpm-libs"
 fi
-(cd native && swift build -c release --product speaker-native)
+(cd native && swift build -c release --product speaker-native && swift build -c release --product Transcribe)
+cp native/.build/release/Transcribe "$APP/Contents/MacOS/Transcribe"
 mkdir -p "$APP/Contents/Resources/bin"
 cp native/.build/release/speaker-native "$APP/Contents/Resources/bin/"
-"$APP/Contents/Resources/bin/speaker-native" fetch-models "$APP/Contents/Resources/models/speaker" \
-    --revision "$SPEAKERKIT_REVISION"
+# A few small files from Hugging Face; retry, as the request sometimes times out.
+for attempt in 1 2 3 4 5; do
+    "$APP/Contents/Resources/bin/speaker-native" fetch-models "$APP/Contents/Resources/models/speaker" \
+        --revision "$SPEAKERKIT_REVISION" && break
+    [ "$attempt" = 5 ] && { echo "Could not download the speaker models"; exit 1; }
+    sleep 10
+done
 
 # ---------------------------------------------------------------
-step "9/10 Install worker script and strip caches"
+step "9/10 Install the pipeline and strip caches"
 # ---------------------------------------------------------------
-cp app/transcribe.sh "$APP/Contents/Resources/transcribe.sh"
 cp app/pipeline.py "$APP/Contents/Resources/pipeline.py"
-chmod +x "$APP/Contents/Resources/transcribe.sh"
 find "$APP" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
 find "$APP" -name '*.pyc' -delete 2>/dev/null || true
 find "$APP" -path '*/site-packages/tests' -type d -exec rm -rf {} + 2>/dev/null || true
@@ -127,7 +132,7 @@ find "$APP" -path '*/site-packages/tests' -type d -exec rm -rf {} + 2>/dev/null 
 # pip-installed CLI wrappers bake the absolute build path into their shebang
 # (e.g. `#!/Users/<you>/codes/.../python3`). They leak your username and don't
 # work on the user's machine anyway because the .app moves. We never call any
-# of them — transcribe.sh invokes Resources/python/bin/python3 directly — so
+# of them — the app invokes Resources/python/bin/python3 directly — so
 # nuke every text shebang script in bin/, keeping the python binary + symlinks.
 BIN="$APP/Contents/Resources/python/bin"
 for f in "$BIN"/*; do
@@ -149,4 +154,4 @@ echo "  Built: $APP"
 echo "  Size:  $SIZE"
 echo "================================================"
 echo ""
-echo "Test it: drag any .m4a / .mp3 / .wav / .mp4 onto the app."
+echo "Test it: open the app and drop any .m4a / .mp3 / .wav / .mp4 into its window."

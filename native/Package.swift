@@ -1,4 +1,5 @@
 // swift-tools-version: 5.10
+// Transcribe: the app's window (SwiftUI).
 // speaker-native: speaker labelling (pyannote models in Core ML, via SpeakerKit)
 // on the Neural Engine / GPU. Never touches the network at run time — models
 // are fetched once, at build time, by `speaker-native fetch-models`.
@@ -19,6 +20,11 @@ let package = Package(
                 .product(name: "SpeakerKit", package: "WhisperKit"),
             ],
             path: "Sources/SpeakerNative"
+        ),
+        // The app's window. No dependencies; it runs the bundled pipeline as a child process.
+        .executableTarget(
+            name: "Transcribe",
+            path: "Sources/TranscribeApp"
         ),
     ]
 )

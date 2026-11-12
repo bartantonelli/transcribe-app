@@ -18,9 +18,18 @@ On an Apple Silicon Mac, open **Terminal** (press ⌘-Space, type "Terminal", pr
 curl -fsSL https://github.com/bartantonelli/transcribe-app/releases/latest/download/install.sh | bash
 ```
 
-It downloads the app (about 4 GB, so give it a while), checks the download, and puts **Transcribe** in your Applications folder, replacing any older copy. It needs about 10 GB of free disk space while installing. After that the app never uses the internet.
+It downloads the app (about 3 GB, so give it a while), checks the download, and puts **Transcribe** in your Applications folder, replacing any older copy. It needs about 10 GB of free disk space while installing. After that the app never uses the internet.
 
-Then drag an audio file onto the app icon. A Terminal window appears with live progress; when it finishes, `<your-audio>.txt` and `<your-audio>.srt` sit next to the original.
+## Using it
+
+Open **Transcribe** and drop recordings into its window (or onto its icon, or use **Choose Files…**).
+
+- **Progress.** Each recording shows a progress bar, the current step and roughly how long is left. Several recordings are done one after another.
+- **Files.** When a recording finishes, `<your-audio>.txt` and `<your-audio>.srt` are saved next to the original.
+- **Reading and listening.** **Open Transcript** shows the transcript in the app. Click any word to hear the recording from that point; the word being spoken is highlighted as it plays. Space starts and stops playback.
+- **History.** Finished recordings stay in the list after you quit. **Remove from List** (under the ⋯ button) takes one off the list without touching the recording or its transcript files.
+
+The app keeps its list, and the word timings the transcript view needs, in `~/Library/Application Support/Transcribe/`. If a recording is later moved or deleted, its transcript still opens but can't be played.
 
 Installing this way avoids the "unidentified developer" warning, because macOS only shows it for apps downloaded with a browser. If you copy the app over by AirDrop or a USB stick instead and macOS refuses to open it, **right-click → Open → Open** once.
 
@@ -32,21 +41,21 @@ You'll need an Apple Silicon Mac with the Xcode Command Line Tools (`xcode-selec
 git clone https://github.com/bartantonelli/transcribe-app.git
 cd transcribe-app
 ./build.sh
-open build/Transcribe.app   # or drag an audio file onto it
+open build/Transcribe.app   # then drop an audio file into the window
 ```
 
 The first build takes 15–30 minutes (downloads ~1 GB of pip packages + ~3.6 GB of model weights). Re-runs reuse the `cache/` directory and are much faster.
 
 ### What `build.sh` does
 
-1. Compiles `app/droplet.applescript` into `build/Transcribe.app`.
+1. Creates the `build/Transcribe.app` bundle from `app/Info.plist`.
 2. Downloads a [portable Python](https://github.com/astral-sh/python-build-standalone) tarball at the version pinned in `versions.env` and extracts it into `Resources/python/`.
 3. Installs `requirements.lock` (a full `pip freeze`) with `--no-deps` so no resolver drift.
 4. Clones whisper-diarization at the pinned commit, applies the local fixes in `patches/whisper-diarization/`, and keeps its `helpers.py` in `Resources/whisper-diarization/`.
 5. Runs `scripts/download_models.py` which fetches faster-whisper, the forced aligner, and the punctuation model into `Resources/models/`.
 6. Generates the icon from `scripts/make_icon.py` and converts it to a `.icns`.
-7. Builds `native/` (the `speaker-native` tool) into `Resources/bin/` and downloads its speaker models into `Resources/models/speaker/`.
-8. Installs `app/transcribe.sh` (the worker the droplet calls) and `app/pipeline.py` (the pipeline it runs) into `Resources/`.
+7. Builds `native/`: the app's window (`Transcribe`, SwiftUI) into `Contents/MacOS/`, and the `speaker-native` tool into `Resources/bin/`, then downloads the speaker models into `Resources/models/speaker/`.
+8. Installs `app/pipeline.py` (the pipeline the window runs for each recording) into `Resources/`.
 9. Strips `__pycache__` and re-signs the bundle ad-hoc so Finder picks up the icon.
 
 ### How a recording is processed
@@ -71,6 +80,12 @@ To compare two transcripts (words, exact text, and speaker labels):
 python3 scripts/ab_compare.py old.txt new.txt
 ```
 
+To check the window's layout without opening it (writes PNGs of the empty and busy states, light and dark):
+
+```bash
+build/Transcribe.app/Contents/MacOS/Transcribe --snapshot shots
+```
+
 ### Pinning
 
 Three layers of version pinning keep the build reproducible:
@@ -81,7 +96,7 @@ Three layers of version pinning keep the build reproducible:
 | Pip dependencies | `requirements.lock` (full freeze, including git+https commits for unreleased packages) |
 | whisper-diarization | `versions.env` (`WD_COMMIT`) |
 | Model versions | `versions.env` (HF repo IDs, speaker model revision) |
-| speaker-native | `native/Package.swift` + `native/Package.resolved` |
+| App window + speaker-native | `native/Package.swift` + `native/Package.resolved` |
 
 To upgrade anything, edit `versions.env`, rebuild once to check it still works, then regenerate the lock with:
 
@@ -97,10 +112,9 @@ transcribe-app/
 ├── versions.env           # Pinned upstream versions
 ├── requirements.lock      # Pinned pip dependencies (pip freeze output)
 ├── app/
-│   ├── droplet.applescript    # Source for the .app launcher
-│   ├── pipeline.py            # The transcription pipeline (bundled into Resources/)
-│   └── transcribe.sh          # Worker script bundled into Resources/
-├── native/                # speaker-native: speaker labelling on the Neural Engine (Swift)
+│   ├── Info.plist             # The .app bundle's description
+│   └── pipeline.py            # The transcription pipeline (bundled into Resources/)
+├── native/                # Swift: the app's window, and speaker-native (speaker labelling on the Neural Engine)
 ├── patches/
 │   └── whisper-diarization/   # Local fixes applied on top of the pinned commit
 └── scripts/
@@ -120,7 +134,7 @@ The zipped app is bigger than GitHub's 2 GB-per-file limit for release assets, s
 ```bash
 ./build.sh
 scripts/package.sh          # writes dist/: zip parts, SHA256SUMS, install.sh
-gh release create v1.2.3 dist/* --title "Transcribe 1.2.3" --notes "..."
+scripts/publish.sh v1.2.3 "Transcribe 1.2.3" notes.md   # uploads as a draft, then publishes
 ```
 
 `scripts/install.sh` (the one-line install above) downloads the parts from the latest release, verifies them against `SHA256SUMS`, joins them and installs the app.
