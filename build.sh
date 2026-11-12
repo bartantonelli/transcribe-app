@@ -149,6 +149,9 @@ for f in "$BIN"/*; do
         *text\ executable*|*Python\ script*) rm "$f" ;;
     esac
 done
+# Links to the scripts just removed (2to3, idle3, ...) would be left dangling,
+# which `codesign --verify --strict` rejects.
+find "$BIN" -type l ! -exec test -e {} \; -delete
 
 # ---------------------------------------------------------------
 step "10/10 Re-sign the bundle (ad-hoc) so Finder shows the icon"
