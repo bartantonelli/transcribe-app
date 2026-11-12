@@ -113,13 +113,21 @@ fi
 cp native/.build/release/Transcribe "$APP/Contents/MacOS/Transcribe"
 mkdir -p "$APP/Contents/Resources/bin"
 cp native/.build/release/speaker-native "$APP/Contents/Resources/bin/"
-# A few small files from Hugging Face; retry, as the request sometimes times out.
+# A few small files from Hugging Face. The request sometimes times out and can
+# leave files half-downloaded, so check the models really load and start over
+# if they don't.
+SPEAKER_MODELS="$APP/Contents/Resources/models/speaker"
 for attempt in 1 2 3 4 5; do
-    "$APP/Contents/Resources/bin/speaker-native" fetch-models "$APP/Contents/Resources/models/speaker" \
-        --revision "$SPEAKERKIT_REVISION" && break
+    if "$APP/Contents/Resources/bin/speaker-native" fetch-models "$SPEAKER_MODELS" --revision "$SPEAKERKIT_REVISION" \
+        && "$APP/Contents/Resources/bin/speaker-native" check "$SPEAKER_MODELS"; then
+        break
+    fi
     [ "$attempt" = 5 ] && { echo "Could not download the speaker models"; exit 1; }
+    rm -rf "$SPEAKER_MODELS"
     sleep 10
 done
+# Download bookkeeping, not needed at run time.
+find "$SPEAKER_MODELS" -name .cache -type d -exec rm -rf {} + 2>/dev/null || true
 
 # ---------------------------------------------------------------
 step "9/10 Install the pipeline and strip caches"

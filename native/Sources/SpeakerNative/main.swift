@@ -4,6 +4,9 @@
 //   speaker-native fetch-models <models-dir> [--revision R]
 //       Build time only. Downloads the speaker models into <models-dir>.
 //
+//   speaker-native check <models-dir>
+//       Build time. Loads the models offline; fails if any file is missing or damaged.
+//
 //   speaker-native diarize <audio> --models <models-dir> --out <turns.json>
 //       Writes [[start_ms, end_ms, speaker], ...] sorted by start, the same
 //       shape NeMo's diarizer returns. Never uses the network.
@@ -36,13 +39,17 @@ func fetchModels(into dir: URL, revision: String) async throws {
     try JSONEncoder().encode(manifest).write(to: dir.appendingPathComponent("models.json"))
 }
 
-func diarize(audio: String, modelsDir: URL, out: String) async throws {
+func loadModels(_ modelsDir: URL) async throws -> SpeakerKit {
     let manifest = try JSONDecoder().decode(
         Manifest.self, from: Data(contentsOf: modelsDir.appendingPathComponent("models.json")))
-    let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: audio)
-    let speakerKit = try await SpeakerKit(PyannoteConfig(
+    return try await SpeakerKit(PyannoteConfig(
         modelFolder: modelsDir.appendingPathComponent(manifest.speaker).path,
         download: false, load: true, verbose: false, logLevel: .error))
+}
+
+func diarize(audio: String, modelsDir: URL, out: String) async throws {
+    let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: audio)
+    let speakerKit = try await loadModels(modelsDir)
     let result = try await speakerKit.diarize(audioArray: samples, options: PyannoteDiarizationOptions())
     // Segments with no identified speaker are dropped.
     let turns: [[Int]] = result.segments
@@ -61,6 +68,7 @@ func option(_ name: String) -> String? {
 
 let usage = """
 usage: speaker-native fetch-models <models-dir> [--revision R]
+       speaker-native check <models-dir>
        speaker-native diarize <audio> --models <models-dir> --out <turns.json>
 """
 
@@ -70,6 +78,12 @@ do {
         let revision = option("--revision") ?? "main"
         guard args.count == 2 else { fail(usage) }
         try await fetchModels(into: URL(fileURLWithPath: args[1]), revision: revision)
+    case "check":
+        guard args.count == 2 else { fail(usage) }
+        // Five seconds of silence is enough to make every model load and run.
+        let speakerKit = try await loadModels(URL(fileURLWithPath: args[1]))
+        _ = try await speakerKit.diarize(
+            audioArray: [Float](repeating: 0, count: 16000 * 5), options: PyannoteDiarizationOptions())
     case "diarize":
         guard let models = option("--models"), let out = option("--out"), args.count == 2 else { fail(usage) }
         try await diarize(audio: args[1], modelsDir: URL(fileURLWithPath: models), out: out)
