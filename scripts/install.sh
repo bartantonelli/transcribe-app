@@ -24,7 +24,7 @@ fail() { echo ""; echo "Install failed: $*" >&2; exit 1; }
 [ "$(uname -s)" = "Darwin" ] || fail "Transcribe only runs on a Mac."
 [ "$(uname -m)" = "arm64" ] || fail "Transcribe needs an Apple Silicon Mac (M1 or newer)."
 
-DEST="/Applications"
+DEST="${TRANSCRIBE_DEST:-/Applications}"       # for testing; normally /Applications
 [ -w "$DEST" ] || { DEST="$HOME/Applications"; mkdir -p "$DEST"; }
 
 # Room for the download, the joined zip and the unpacked app, at the worst moment.
