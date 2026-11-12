@@ -30,8 +30,14 @@ struct HistoryRecord: Codable {
 /// (.txt, .srt) are saved next to the recordings, not here.
 enum Store {
     static let folder: URL = {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let folder = base.appendingPathComponent("Transcribe", isDirectory: true)
+        // TRANSCRIBE_DATA_DIR points the app at a scratch folder, so tests don't touch real history.
+        let folder: URL
+        if let override = ProcessInfo.processInfo.environment["TRANSCRIBE_DATA_DIR"] {
+            folder = URL(fileURLWithPath: override, isDirectory: true)
+        } else {
+            let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            folder = base.appendingPathComponent("Transcribe", isDirectory: true)
+        }
         try? FileManager.default.createDirectory(
             at: folder.appendingPathComponent("transcripts"), withIntermediateDirectories: true)
         return folder
@@ -218,6 +224,8 @@ final class JobQueue: ObservableObject {
             "HOME": NSHomeDirectory(),
             "TMPDIR": NSTemporaryDirectory(),
             "PYTHONNOUSERSITE": "1",
+            // Never write .pyc files into the app: that would break its code signature.
+            "PYTHONDONTWRITEBYTECODE": "1",
             "HF_HOME": resources.appendingPathComponent("models/huggingface").path,
             "HF_HUB_OFFLINE": "1",
             "TRANSFORMERS_OFFLINE": "1",

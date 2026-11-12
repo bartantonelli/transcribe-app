@@ -15,6 +15,14 @@ DIST="${DIST:-dist}"   # where the release files go
 APP="build/Transcribe.app"
 [ -d "$APP" ] || { echo "Missing $APP — run ./build.sh first"; exit 1; }
 
+# Running the pipeline from build/ with a plain python3 writes __pycache__ into
+# the bundle and breaks the signature made by build.sh. Don't ship that.
+codesign --verify --deep "$APP" 2>/dev/null || {
+    echo "$APP was modified after it was signed (usually __pycache__ from a test run)."
+    echo "Run ./build.sh again, or strip the caches and re-sign, before packaging."
+    exit 1
+}
+
 rm -rf "$DIST" && mkdir -p "$DIST"
 echo "==> Zipping $APP (a few minutes)"
 # ditto keeps the code signature, icon and symlinks intact.
