@@ -10,19 +10,20 @@
 #   scripts/publish.sh vX.Y.Z "Transcribe X.Y.Z" notes.md
 set -euo pipefail
 cd "$(dirname "$0")/.."
+DIST="${DIST:-dist}"   # where the release files go
 
 APP="build/Transcribe.app"
 [ -d "$APP" ] || { echo "Missing $APP — run ./build.sh first"; exit 1; }
 
-rm -rf dist && mkdir dist
+rm -rf "$DIST" && mkdir -p "$DIST"
 echo "==> Zipping $APP (a few minutes)"
 # ditto keeps the code signature, icon and symlinks intact.
-ditto -c -k --keepParent --sequesterRsrc "$APP" dist/Transcribe.zip
+ditto -c -k --keepParent --sequesterRsrc "$APP" "$DIST/Transcribe.zip"
 
 echo "==> Splitting into 450 MB parts"
-(cd dist && split -b 450m Transcribe.zip Transcribe.zip.part- && rm Transcribe.zip)
-(cd dist && shasum -a 256 Transcribe.zip.part-* > SHA256SUMS)
-cp scripts/install.sh dist/install.sh
+(cd "$DIST" && split -b 450m Transcribe.zip Transcribe.zip.part- && rm Transcribe.zip)
+(cd "$DIST" && shasum -a 256 Transcribe.zip.part-* > SHA256SUMS)
+cp scripts/install.sh "$DIST/install.sh"
 
 echo ""
-ls -lh dist
+ls -lh "$DIST"

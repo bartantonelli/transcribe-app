@@ -9,18 +9,19 @@
 # already uploaded are skipped.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+DIST="${DIST:-dist}"   # where the release files go
 
 TAG="${1:?tag, e.g. v1.2.3}"
 TITLE="${2:?title}"
 NOTES="${3:?notes file}"
 COMMIT="$(git rev-parse "${4:-HEAD}")"
-[ -f dist/SHA256SUMS ] || { echo "Missing dist/ — run scripts/package.sh first"; exit 1; }
+[ -f "$DIST/SHA256SUMS" ] || { echo "Missing $DIST/ — run scripts/package.sh first"; exit 1; }
 
 if ! gh release view "$TAG" >/dev/null 2>&1; then
     gh release create "$TAG" --draft --target "$COMMIT" --title "$TITLE" --notes-file "$NOTES"
 fi
 
-for f in dist/*; do
+for f in "$DIST"/*; do
     name="$(basename "$f")"
     if gh release view "$TAG" --json assets --jq '.assets[] | select(.state == "uploaded") | .name' | grep -qx "$name"; then
         echo "have  $name"

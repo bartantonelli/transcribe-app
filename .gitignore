@@ -20,3 +20,4 @@ native/.build/
 
 # Release assets
 dist/
+dist*/
