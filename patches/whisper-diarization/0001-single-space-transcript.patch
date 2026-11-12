@@ -1,0 +1,47 @@
+diff --git a/helpers.py b/helpers.py
+index a8a59d1..7f5cf5a 100644
+--- a/helpers.py
++++ b/helpers.py
+@@ -386,20 +386,22 @@ def get_sentences_speaker_mapping(word_speaker_mapping, spk_ts):
+ 
+ 
+ def get_speaker_aware_transcript(sentences_speaker_mapping, f):
+-    previous_speaker = sentences_speaker_mapping[0]["speaker"]
+-    f.write(f"{previous_speaker}: ")
+-
++    # Group consecutive sentences by speaker and join with single spaces.
++    # Sentence text carries a trailing space and words can be empty, so
++    # normalise whitespace instead of concatenating raw strings.
++    paragraphs = []
+     for sentence_dict in sentences_speaker_mapping:
+         speaker = sentence_dict["speaker"]
+-        sentence = sentence_dict["text"]
+-
+-        # If this speaker doesn't match the previous one, start a new paragraph
+-        if speaker != previous_speaker:
+-            f.write(f"\n\n{speaker}: ")
+-            previous_speaker = speaker
++        sentence = " ".join(sentence_dict["text"].split())
++        if not sentence:
++            continue
++        if paragraphs and paragraphs[-1][0] == speaker:
++            paragraphs[-1][1].append(sentence)
++        else:
++            paragraphs.append((speaker, [sentence]))
+ 
+-        # No matter what, write the current sentence
+-        f.write(sentence + " ")
++    f.write("\n\n".join(f"{speaker}: {' '.join(sents)}" for speaker, sents in paragraphs))
++    f.write("\n")
+ 
+ 
+ def format_timestamp(
+@@ -431,7 +433,7 @@ def write_srt(transcript, file):
+             f"{i}\n"
+             f"{format_timestamp(segment['start_time'])} --> "
+             f"{format_timestamp(segment['end_time'])}\n"
+-            f"{segment['speaker']}: {segment['text'].strip().replace('-->', '->')}\n",
++            f"{segment['speaker']}: {' '.join(segment['text'].split()).replace('-->', '->')}\n",
+             file=file,
+             flush=True,
+         )

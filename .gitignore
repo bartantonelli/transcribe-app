@@ -14,3 +14,9 @@ __pycache__/
 # Local virtual envs (we use python-build-standalone in build/, not here)
 venv/
 .venv/
+
+# Speaker-labelling tool
+native/.build/
+
+# Release assets
+dist/

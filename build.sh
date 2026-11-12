@@ -17,18 +17,18 @@ APP="$ROOT/build/Transcribe.app"
 step() { echo ""; echo "==> $*"; }
 
 # Sanity checks for tools we need (all built into macOS or trivial).
-for tool in curl tar git osacompile iconutil sips codesign rsync; do
+for tool in curl tar git osacompile iconutil sips codesign rsync swift; do
     command -v "$tool" >/dev/null || { echo "Missing tool: $tool"; exit 1; }
 done
 
 # ---------------------------------------------------------------
-step "1/9 Compile AppleScript droplet -> Transcribe.app"
+step "1/10 Compile AppleScript droplet -> Transcribe.app"
 # ---------------------------------------------------------------
 rm -rf "$APP"
 osacompile -o "$APP" app/droplet.applescript
 
 # ---------------------------------------------------------------
-step "2/9 Download portable Python ${PYTHON_VERSION} (${PYTHON_RELEASE})"
+step "2/10 Download portable Python ${PYTHON_VERSION} (${PYTHON_RELEASE})"
 # ---------------------------------------------------------------
 PY_TARBALL="cache/$(basename "$PYTHON_URL")"
 if [ ! -f "$PY_TARBALL" ]; then
@@ -36,7 +36,7 @@ if [ ! -f "$PY_TARBALL" ]; then
 fi
 
 # ---------------------------------------------------------------
-step "3/9 Extract Python into the .app"
+step "3/10 Extract Python into the .app"
 # ---------------------------------------------------------------
 PY_ROOT="$APP/Contents/Resources/python"
 mkdir -p "$PY_ROOT"
@@ -45,7 +45,7 @@ PY="$PY_ROOT/bin/python3"
 echo "    $("$PY" --version)"
 
 # ---------------------------------------------------------------
-step "4/9 Install pinned Python dependencies (slow, ~5-10 min)"
+step "4/10 Install pinned Python dependencies (slow, ~5-10 min)"
 # ---------------------------------------------------------------
 "$PY" -m pip install --upgrade pip
 # Lock file is a full pip freeze, so --no-deps is safe and prevents resolver
@@ -53,31 +53,36 @@ step "4/9 Install pinned Python dependencies (slow, ~5-10 min)"
 "$PY" -m pip install --no-deps -r requirements.lock
 
 # ---------------------------------------------------------------
-step "5/9 Clone whisper-diarization @ ${WD_COMMIT:0:10}"
+step "5/10 Clone whisper-diarization @ ${WD_COMMIT:0:10}"
 # ---------------------------------------------------------------
 WD="$APP/Contents/Resources/whisper-diarization"
 rm -rf "$WD"
 git clone --quiet "$WD_REPO" "$WD"
 (cd "$WD" && git checkout --quiet "$WD_COMMIT")
-rm -rf "$WD/.git" "$WD/tests"
-find "$WD" -name '*.ipynb' -delete
+# Local fixes on top of the pinned commit (e.g. single-spaced transcripts).
+for p in "$ROOT"/patches/whisper-diarization/*.patch; do
+    (cd "$WD" && git apply "$p")
+    echo "    applied $(basename "$p")"
+done
+# The app runs its own app/pipeline.py; from whisper-diarization it only needs
+# the helper functions (and the licence that goes with them).
+find "$WD" -mindepth 1 -maxdepth 1 ! -name helpers.py ! -name LICENSE -exec rm -rf {} +
 
 # ---------------------------------------------------------------
-step "6/9 Download models (~3 GB, slowest network step)"
+step "6/10 Download models (~3.6 GB, slowest network step)"
 # ---------------------------------------------------------------
 HF_DIR="$APP/Contents/Resources/models/huggingface"
-NEMO_DIR="$APP/Contents/Resources/models/torch"
 WHISPER_MODEL="$WHISPER_MODEL" \
 HF_FORCED_ALIGNER="$HF_FORCED_ALIGNER" \
 HF_PUNCTUATION="$HF_PUNCTUATION" \
-NEMO_VAD_MODEL="$NEMO_VAD_MODEL" \
-NEMO_MSDD_MODEL="$NEMO_MSDD_MODEL" \
-    "$PY" scripts/download_models.py --hf-home "$HF_DIR" --torch-home "$NEMO_DIR"
+    "$PY" scripts/download_models.py --hf-home "$HF_DIR"
 
 # ---------------------------------------------------------------
-step "7/9 Generate icon and install it"
+step "7/10 Generate icon and install it"
 # ---------------------------------------------------------------
-"$PY" scripts/make_icon.py cache/icon_1024.png
+# Pillow is only needed to draw the icon, so it stays out of the bundle.
+"$PY" -m pip install --quiet --target cache/buildtools "pillow==$PILLOW_VERSION"
+PYTHONPATH=cache/buildtools "$PY" scripts/make_icon.py cache/icon_1024.png
 ICONSET="cache/Transcribe.iconset"
 rm -rf "$ICONSET" && mkdir -p "$ICONSET"
 for spec in "16 16x16" "32 16x16@2x" "32 32x32" "64 32x32@2x" \
@@ -90,9 +95,30 @@ done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/droplet.icns"
 
 # ---------------------------------------------------------------
-step "8/9 Install worker script and strip caches"
+step "8/10 Build speaker-native and download its models"
+# ---------------------------------------------------------------
+# Some Command Line Tools installs keep a stale *.private.swiftinterface from an
+# older version, which makes every Package.swift fail to compile. If so, build
+# against a clean copy of SwiftPM's libraries instead of touching /Library.
+PM_LIBS="$(dirname "$(dirname "$(xcrun -f swift)")")/lib/swift/pm"
+PD="$PM_LIBS/ManifestAPI/PackageDescription.swiftmodule"
+if [ -f "$PD/arm64-apple-macos.private.swiftinterface" ] && \
+   [ "$PD/arm64-apple-macos.private.swiftinterface" -ot "$PM_LIBS/ManifestAPI/libPackageDescription.dylib" ]; then
+    rm -rf cache/swiftpm-libs && cp -R "$PM_LIBS" cache/swiftpm-libs
+    find cache/swiftpm-libs -name '*.private.swiftinterface' -delete
+    export SWIFTPM_CUSTOM_LIBS_DIR="$ROOT/cache/swiftpm-libs"
+fi
+(cd native && swift build -c release --product speaker-native)
+mkdir -p "$APP/Contents/Resources/bin"
+cp native/.build/release/speaker-native "$APP/Contents/Resources/bin/"
+"$APP/Contents/Resources/bin/speaker-native" fetch-models "$APP/Contents/Resources/models/speaker" \
+    --revision "$SPEAKERKIT_REVISION"
+
+# ---------------------------------------------------------------
+step "9/10 Install worker script and strip caches"
 # ---------------------------------------------------------------
 cp app/transcribe.sh "$APP/Contents/Resources/transcribe.sh"
+cp app/pipeline.py "$APP/Contents/Resources/pipeline.py"
 chmod +x "$APP/Contents/Resources/transcribe.sh"
 find "$APP" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
 find "$APP" -name '*.pyc' -delete 2>/dev/null || true
@@ -112,7 +138,7 @@ for f in "$BIN"/*; do
 done
 
 # ---------------------------------------------------------------
-step "9/9 Re-sign the bundle (ad-hoc) so Finder shows the icon"
+step "10/10 Re-sign the bundle (ad-hoc) so Finder shows the icon"
 # ---------------------------------------------------------------
 codesign --force --deep --sign - "$APP" 2>&1 | tail -2
 

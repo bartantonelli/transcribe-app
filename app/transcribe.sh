@@ -11,11 +11,10 @@ export PATH="$RES/python/bin:$PATH"
 export PYTHONNOUSERSITE=1
 unset PYTHONPATH
 
-# Point HuggingFace and NeMo at the bundled model caches, and force offline.
+# Point HuggingFace at the bundled model cache, and force offline.
 export HF_HOME="$RES/models/huggingface"
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
-export TORCH_HOME="$RES/models/torch"
 
 AUDIO="${1:-}"
 if [ -z "$AUDIO" ] || [ ! -f "$AUDIO" ]; then
@@ -36,7 +35,7 @@ echo "================================================"
 echo "  Transcribing: $(basename "$AUDIO_ABS")"
 echo "================================================"
 echo "  This runs fully offline."
-echo "  A ~30 min audio file takes ~15-30 min on CPU."
+echo "  A ~30 min audio file takes ~8-10 min."
 echo ""
 
 cd "$WORK"
@@ -44,8 +43,7 @@ START=$(date +%s)
 
 # Run the actual pipeline in the background so we can show progress.
 (
-    "$RES/python/bin/python3" "$RES/whisper-diarization/diarize.py" \
-        -a "$AUDIO_ABS" --no-stem --language en --device cpu --whisper-model medium.en
+    "$RES/python/bin/python3" "$RES/pipeline.py" "$AUDIO_ABS"
 ) > "$LOG" 2>&1 &
 PID=$!
 
@@ -54,9 +52,9 @@ while kill -0 "$PID" 2>/dev/null; do
     sleep 5
     NOW=$(date +%s); EL=$((NOW - START))
     M=$((EL/60)); S=$((EL%60))
-    STAGE=$(tail -150 "$LOG" 2>/dev/null | grep -oE \
-        "Loading pretrained [a-zA-Z_]+|Generating predictions|Extracting embeddings|scale[0-9]|frame-level VAD|Clustering|Outputs are saved|MSDD|forced.align|punctuat|Loading checkpoint shards|Transcribing" \
-        | tail -1)
+    STAGE=$(grep -oE \
+        "^(Loading audio|Transcribing|Timing words|Identifying speakers|Adding punctuation)$" \
+        "$LOG" 2>/dev/null | tail -1)
     [ -z "$STAGE" ] && STAGE="loading models..."
     printf "\r  [%02d:%02d] %-70s" "$M" "$S" "$STAGE"
 done
